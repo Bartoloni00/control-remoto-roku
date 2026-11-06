@@ -137,22 +137,20 @@ impl RemoteApp {
     /// Fila superior: IP editable, puerto fijo y estado/error.
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label("IP:");
+            ui.label(RichText::new("IP:").strong());
             let resp = ui.add(
                 egui::TextEdit::singleline(&mut self.ip)
-                    .desired_width(150.0)
+                    .desired_width(140.0)
                     .hint_text(roku::DEFAULT_IP),
             );
             ui.label(RichText::new(":8060").color(MUTED));
-            let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-            let clicked = ui.button("Conectar").clicked();
-            if enter || clicked {
+            if ui.button("Conectar").clicked() || (resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter))) {
                 self.connect();
             }
         });
-        ui.add_space(4.0);
+        ui.add_space(6.0);
         let color = if self.connected { OK_GREEN } else { ERR_RED };
-        ui.label(RichText::new(&self.status).color(color).size(14.0));
+        ui.label(RichText::new(&self.status).color(color).size(13.0));
     }
 
     /// Cruz de flechas, trébol de fondo y botón OK, todo dibujado con el painter.
@@ -189,7 +187,7 @@ impl RemoteApp {
             };
             painter.rect_filled(r, 20.0, fill);
             let (dx, dy) = dirs[i];
-            let _ = d; // el orden coincide con Dir::ALL
+            let _ = d;
             triangle(&painter, r.center(), Vec2::new(dx, dy), 16.0);
         }
 
@@ -209,25 +207,47 @@ impl RemoteApp {
         }
     }
 
-    /// Fila de accesos: Home y los tres canales.
+    /// Fila de accesos directos con logos reales desde la API de Roku o tarjetas estilizadas.
     fn shortcuts(&mut self, ui: &mut egui::Ui) {
-        let items: [(&str, Option<Channel>); 5] = [
-            ("Home", None),
-            ("Netflix", Some(Channel::Netflix)),
-            ("HBO", Some(Channel::Hbo)),
-            ("YouTube", Some(Channel::YouTube)),
-            ("Spotify", Some(Channel::Spotify)),
-        ];
-        let w = (ui.available_width() - 4.0 * 6.0) / 5.0;
+        let channels = Channel::ALL;
+        let total_slots = 5.0; // Home + 4 canales
+        let w = (ui.available_width() - 4.0 * 6.0) / total_slots;
+
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            for (label, ch) in items {
-                let btn = egui::Button::new(label).rounding(12.0).fill(BUTTON);
-                if ui.add_sized([w, 40.0], btn).clicked() {
-                    match ch {
-                        None => self.send(Cmd::Press("Home")),
-                        Some(c) => self.launch(c),
-                    }
+
+            // 1. Botón Home con estilo especial
+            let home_btn = egui::Button::new(RichText::new("🏠 Home").size(13.0))
+                .rounding(12.0)
+                .fill(BUTTON);
+            if ui.add_sized([w, 44.0], home_btn).clicked() {
+                self.send(Cmd::Press("Home"));
+            }
+
+            // 2. Botones de Canales con Logos dinámicos del Roku
+            for ch in channels {
+                let id = &self.app_ids[ch as usize];
+                // URL oficial de la API de Roku para obtener el ícono/logo de la app instalada
+                let icon_url = format!("http://{}:{}/query/icon/{}", self.ip, roku::PORT, id);
+                let label_text = match ch {
+                    Channel::Netflix => "Netflix",
+                    Channel::Hbo => "HBO",
+                    Channel::YouTube => "YouTube",
+                    Channel::Spotify => "Spotify",
+                };
+
+                let response = ui.add_sized(
+                    [w, 44.0],
+                    egui::Button::image_and_text(
+                        egui::Image::new(icon_url).max_size(Vec2::new(22.0, 22.0)),
+                        RichText::new(label_text).size(11.0).color(Color32::WHITE),
+                    )
+                    .rounding(12.0)
+                    .fill(BUTTON),
+                );
+
+                if response.clicked() {
+                    self.launch(ch);
                 }
             }
         });
@@ -250,7 +270,6 @@ impl eframe::App for RemoteApp {
             });
 
         self.sync_holds();
-        // Para recoger respuestas del hilo de red aunque no haya input.
         ctx.request_repaint_after(Duration::from_millis(100));
     }
 }

@@ -52,6 +52,10 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Control remoto Roku",
         options,
-        Box::new(move |cc| Ok(Box::new(ui::RemoteApp::new(cc, cfg)))),
+        Box::new(move |cc| {
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+            // Quitamos el "Ok(" de aquí, ya que la closure espera directamente el Box<dyn App>
+            Box::new(ui::RemoteApp::new(cc, cfg))
+        }),
     )
 }

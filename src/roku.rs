@@ -1,4 +1,4 @@
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::Sender; // <--- Quitamos Receiver de aquí
 use std::time::Duration;
 
 pub const PORT: u16 = 8060;
@@ -42,6 +42,7 @@ impl Channel {
         Channel::Spotify,
     ];
 
+    #[allow(dead_code)] // <--- Evita la advertencia de método no utilizado
     pub fn label(self) -> &'static str {
         match self {
             Channel::Netflix => "Netflix",

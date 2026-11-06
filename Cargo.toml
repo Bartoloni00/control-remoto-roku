@@ -1,7 +1,11 @@
 [package]
 name = "control-remoto-roku"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
-ureq = { version = "3", default-features = false }
+eframe = "0.29"
+ureq = "2"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+dirs = "5"

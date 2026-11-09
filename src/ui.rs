@@ -175,6 +175,9 @@ impl RemoteApp {
         for (i, d) in Dir::ALL.iter().enumerate() {
             let r = Rect::from_center_size(centers[i], Vec2::splat(btn));
             let resp = ui.interact(r, ui.id().with(("dir", i)), Sense::click());
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
             let pressed = resp.is_pointer_button_down_on();
             self.mouse_down[i] = pressed;
 
@@ -194,6 +197,11 @@ impl RemoteApp {
         // OK circular con degradado
         let ok_bounds = Rect::from_center_size(c, Vec2::splat(80.0));
         let ok_resp = ui.interact(ok_bounds, ui.id().with("ok"), Sense::click());
+
+        if ok_resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
         gradient_circle(&painter, c, 40.0, ok_bounds);
         painter.text(
             c,
@@ -236,6 +244,11 @@ impl RemoteApp {
                 .stroke(Stroke::new(1.0, brand_color.linear_multiply(0.6))); // Borde sutil con el color de la marca
 
                 let resp = ui.add_sized([w, 44.0], btn);
+
+                // Si el mouse pasa por encima, cambiamos el cursor a la manita
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
                 
                 if resp.clicked() {
                     match ch {

@@ -33,6 +33,7 @@ pub struct RemoteApp {
     cmd_tx: Sender<(String, Cmd)>,
     ev_tx: Sender<Event>,
     ev_rx: Receiver<Event>,
+    search_text: String,
 }
 
 impl RemoteApp {
@@ -51,6 +52,7 @@ impl RemoteApp {
             cmd_tx,
             ev_tx,
             ev_rx,
+            search_text: String::new(),
         };
         app.connect();
         app
@@ -241,7 +243,7 @@ impl RemoteApp {
                 )
                 .rounding(12.0)
                 .fill(BUTTON)
-                .stroke(Stroke::new(1.0, brand_color.linear_multiply(0.6))); // Borde sutil con el color de la marca
+                .stroke(Stroke::new(1.0_f32, brand_color.linear_multiply(0.6))); // Borde sutil con el color de la marca
 
                 let resp = ui.add_sized([w, 44.0], btn);
 
@@ -259,6 +261,27 @@ impl RemoteApp {
             }
         });
     }
+
+    fn text_sender_bar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("⌨️").size(14.0));
+            let resp = ui.add(
+                egui::TextEdit::singleline(&mut self.search_text)
+                    .desired_width(ui.available_width() - 70.0)
+                    .hint_text("Escribe para buscar en Roku..."),
+            );
+
+            // Si presionan Enter dentro del cuadro de texto, enviamos letra por letra
+            if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                let text_to_send = self.search_text.clone();
+                for c in text_to_send.chars() {
+                    // Si es espacio lo mandamos codificado o como caracter soportado
+                    self.send(Cmd::Literal(c));
+                }
+                self.search_text.clear();
+            }
+        });
+    }
 }
 
 impl eframe::App for RemoteApp {
@@ -270,6 +293,8 @@ impl eframe::App for RemoteApp {
             .frame(egui::Frame::none().fill(BG).inner_margin(16.0))
             .show(ctx, |ui| {
                 self.top_bar(ui);
+                ui.add_space(6.0);
+                self.text_sender_bar(ui);
                 ui.add_space(8.0);
                 ui.vertical_centered(|ui| self.dpad(ui));
                 ui.add_space(12.0);

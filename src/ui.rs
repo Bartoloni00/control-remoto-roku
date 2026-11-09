@@ -209,45 +209,39 @@ impl RemoteApp {
 
     /// Fila de accesos directos con logos reales desde la API de Roku o tarjetas estilizadas.
     fn shortcuts(&mut self, ui: &mut egui::Ui) {
-        let channels = Channel::ALL;
-        let total_slots = 5.0; // Home + 4 canales
+        // Definimos el label, el canal y un color distintivo para el borde/hover o fondo sutil
+        let items: [(&str, Option<Channel>, Color32); 5] = [
+            ("🏠 Home", None, Color32::from_rgb(50, 70, 110)),
+            ("Netflix", Some(Channel::Netflix), Color32::from_rgb(229, 9, 20)),      // Rojo Netflix
+            ("HBO / Max", Some(Channel::Hbo), Color32::from_rgb(88, 34, 180)),      // Violeta Max
+            ("YouTube", Some(Channel::YouTube), Color32::from_rgb(255, 0, 0)),        // Rojo YouTube
+            ("Spotify", Some(Channel::Spotify), Color32::from_rgb(29, 185, 84)),      // Verde Spotify
+        ];
+
+        let total_slots = 5.0;
         let w = (ui.available_width() - 4.0 * 6.0) / total_slots;
 
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-
-            // 1. Botón Home con estilo especial
-            let home_btn = egui::Button::new(RichText::new("🏠 Home").size(13.0))
+            for (label, ch, brand_color) in items {
+                // Creamos un botón con el color base y un toque del color de marca en el texto o bordes
+                let btn = egui::Button::new(
+                    RichText::new(label)
+                        .size(12.0)
+                        .strong()
+                        .color(Color32::WHITE),
+                )
                 .rounding(12.0)
-                .fill(BUTTON);
-            if ui.add_sized([w, 44.0], home_btn).clicked() {
-                self.send(Cmd::Press("Home"));
-            }
+                .fill(BUTTON)
+                .stroke(Stroke::new(1.0, brand_color.linear_multiply(0.6))); // Borde sutil con el color de la marca
 
-            // 2. Botones de Canales con Logos dinámicos del Roku
-            for ch in channels {
-                let id = &self.app_ids[ch as usize];
-                // URL oficial de la API de Roku para obtener el ícono/logo de la app instalada
-                let icon_url = format!("http://{}:{}/query/icon/{}", self.ip, roku::PORT, id);
-                let label_text = match ch {
-                    Channel::Netflix => "Netflix",
-                    Channel::Hbo => "HBO",
-                    Channel::YouTube => "YouTube",
-                    Channel::Spotify => "Spotify",
-                };
-
-                let response = ui.add_sized(
-                    [w, 44.0],
-                    egui::Button::image_and_text(
-                        egui::Image::new(icon_url).max_size(Vec2::new(22.0, 22.0)),
-                        RichText::new(label_text).size(11.0).color(Color32::WHITE),
-                    )
-                    .rounding(12.0)
-                    .fill(BUTTON),
-                );
-
-                if response.clicked() {
-                    self.launch(ch);
+                let resp = ui.add_sized([w, 44.0], btn);
+                
+                if resp.clicked() {
+                    match ch {
+                        None => self.send(Cmd::Press("Home")),
+                        Some(c) => self.launch(c),
+                    }
                 }
             }
         });

@@ -34,6 +34,7 @@ pub struct RemoteApp {
     ev_tx: Sender<Event>,
     ev_rx: Receiver<Event>,
     search_text: String,
+    focus_search: bool, // Bandera para llevar el foco al buscador con Ctrl
 }
 
 impl RemoteApp {
@@ -53,6 +54,7 @@ impl RemoteApp {
             ev_tx,
             ev_rx,
             search_text: String::new(),
+            focus_search: false,
         };
         app.connect();
         app
@@ -97,12 +99,43 @@ impl RemoteApp {
         }
     }
 
-    /// Teclado: flechas (mantener = keydown/keyup), Enter = OK, Escape/H = Home.
+    /// Barra de texto interactiva con sincronización 1 a 1 y detección de borrado.
+    fn text_sender_bar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("⌨️").size(14.0));
+            
+            let text_edit = egui::TextEdit::singleline(&mut self.search_text)
+                .desired_width(ui.available_width() - 70.0)
+                .hint_text("Ctrl para buscar (Escribe 1 a 1)...");
+
+            let resp = ui.add(text_edit);
+
+            // Si se presionó Ctrl, solicitamos poner el foco en este campo de texto
+            if self.focus_search {
+                resp.request_focus();
+                self.focus_search = false;
+            }
+
+            // Detectamos si el texto cambió (escribieron algo nuevo o borraron)
+            if resp.changed() {
+                let _current_len = self.search_text.chars().count(); // Prefijado con _
+                if let Some(c) = self.search_text.chars().last() {
+                    self.send(Cmd::Literal(c));
+                }
+            }
+
+            // Detectamos si presionaron Backspace estando enfocados para enviar la orden de borrar al Roku
+            if resp.has_focus() && ui.input(|i| i.key_pressed(Key::Backspace)) {
+                if !self.search_text.is_empty() {
+                    self.search_text.pop(); // Borramos localmente
+                }
+                self.send(Cmd::Backspace); // Borramos en el Roku
+            }
+        });
+    }
+
+    /// Teclado general: flechas, Enter = OK, Escape/H = Home, Ctrl = Enfocar buscador.
     fn read_keyboard(&mut self, ctx: &egui::Context) {
-        if ctx.wants_keyboard_input() {
-            self.key_down = [false; 4];
-            return;
-        }
         let (down, enter, home) = ctx.input(|i| {
             (
                 [
@@ -115,6 +148,18 @@ impl RemoteApp {
                 i.key_pressed(Key::Escape) || i.key_pressed(Key::H),
             )
         });
+
+        // Si presionan Ctrl + F (o simplemente hacen clic en la barra), enfocamos el buscador
+        if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(Key::F)) {
+            self.focus_search = true;
+        }
+
+        // Si el buscador tiene foco, dejamos que el usuario escriba libremente sin mover las flechas del D-pad
+        if ctx.wants_keyboard_input() {
+            self.key_down = [false; 4];
+            return;
+        }
+
         self.key_down = down;
         if enter {
             self.send(Cmd::Press("Select"));
@@ -217,15 +262,14 @@ impl RemoteApp {
         }
     }
 
-    /// Fila de accesos directos con logos reales desde la API de Roku o tarjetas estilizadas.
+    /// Fila de accesos directos
     fn shortcuts(&mut self, ui: &mut egui::Ui) {
-        // Definimos el label, el canal y un color distintivo para el borde/hover o fondo sutil
         let items: [(&str, Option<Channel>, Color32); 5] = [
             ("🏠 Home", None, Color32::from_rgb(50, 70, 110)),
-            ("Netflix", Some(Channel::Netflix), Color32::from_rgb(229, 9, 20)),      // Rojo Netflix
-            ("HBO / Max", Some(Channel::Hbo), Color32::from_rgb(88, 34, 180)),      // Violeta Max
-            ("YouTube", Some(Channel::YouTube), Color32::from_rgb(255, 0, 0)),        // Rojo YouTube
-            ("Spotify", Some(Channel::Spotify), Color32::from_rgb(29, 185, 84)),      // Verde Spotify
+            ("Netflix", Some(Channel::Netflix), Color32::from_rgb(229, 9, 20)),
+            ("HBO / Max", Some(Channel::Hbo), Color32::from_rgb(88, 34, 180)),
+            ("YouTube", Some(Channel::YouTube), Color32::from_rgb(255, 0, 0)),
+            ("Spotify", Some(Channel::Spotify), Color32::from_rgb(29, 185, 84)),
         ];
 
         let total_slots = 5.0;
@@ -234,7 +278,6 @@ impl RemoteApp {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             for (label, ch, brand_color) in items {
-                // Creamos un botón con el color base y un toque del color de marca en el texto o bordes
                 let btn = egui::Button::new(
                     RichText::new(label)
                         .size(12.0)
@@ -243,11 +286,10 @@ impl RemoteApp {
                 )
                 .rounding(12.0)
                 .fill(BUTTON)
-                .stroke(Stroke::new(1.0_f32, brand_color.linear_multiply(0.6))); // Borde sutil con el color de la marca
+                .stroke(Stroke::new(1.0_f32, brand_color.linear_multiply(0.6)));
 
                 let resp = ui.add_sized([w, 44.0], btn);
 
-                // Si el mouse pasa por encima, cambiamos el cursor a la manita
                 if resp.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
@@ -258,27 +300,6 @@ impl RemoteApp {
                         Some(c) => self.launch(c),
                     }
                 }
-            }
-        });
-    }
-
-    fn text_sender_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("⌨️").size(14.0));
-            let resp = ui.add(
-                egui::TextEdit::singleline(&mut self.search_text)
-                    .desired_width(ui.available_width() - 70.0)
-                    .hint_text("Escribe para buscar en Roku..."),
-            );
-
-            // Si presionan Enter dentro del cuadro de texto, enviamos letra por letra
-            if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                let text_to_send = self.search_text.clone();
-                for c in text_to_send.chars() {
-                    // Si es espacio lo mandamos codificado o como caracter soportado
-                    self.send(Cmd::Literal(c));
-                }
-                self.search_text.clear();
             }
         });
     }

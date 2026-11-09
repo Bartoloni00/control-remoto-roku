@@ -86,6 +86,7 @@ pub enum Cmd {
     Press(&'static str),
     Launch(String),
     Literal(char), // <--- Para el teclado virtual, si se pulsa un carácter
+    Backspace, // <--- Para el teclado virtual, si se pulsa la tecla de retroceso
 }
 
 /// Mensajes del hilo de red hacia la UI.
@@ -190,7 +191,16 @@ pub fn run_cmd(ip: &str, cmd: &Cmd) -> Result<(), String> {
         Cmd::KeyUp(d) => post(ip, &format!("/keyup/{}", d.key())),
         Cmd::Press(k) => post(ip, &format!("/keypress/{k}")),
         Cmd::Launch(id) => post(ip, &format!("/launch/{id}")),
-        Cmd::Literal(c) => post(ip, &format!("/keypress/Lit_{c}")),
+        Cmd::Literal(c) => {
+            // Manejamos el espacio de forma segura para la URL (%20)
+            let path = if *c == ' ' {
+                "/keypress/Lit_%20".to_string()
+            } else {
+                format!("/keypress/Lit_{c}")
+            };
+            post(ip, &path)
+        }
+        Cmd::Backspace => post(ip, "/keypress/Backspace"),
     }
 }
 

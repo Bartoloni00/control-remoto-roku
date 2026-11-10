@@ -35,7 +35,7 @@ pub struct RemoteApp {
     ev_tx: Sender<Event>,
     ev_rx: Receiver<Event>,
     search_text: String,
-    focus_search: bool, // Bandera para llevar el foco al buscador con Ctrl
+    focus_search: bool,
 }
 
 impl RemoteApp {
@@ -61,7 +61,6 @@ impl RemoteApp {
         app
     }
 
-    /// Guarda la IP y consulta el nombre del equipo y sus apps.
     fn connect(&mut self) {
         self.ip = self.ip.trim().to_string();
         let _ = save_config(&Config { ip: self.ip.clone() });
@@ -70,7 +69,6 @@ impl RemoteApp {
         roku::spawn_query(self.ip.clone(), self.ev_tx.clone());
     }
 
-    /// Envía un comando al hilo worker (fire-and-forget).
     fn send(&self, cmd: Cmd) {
         let _ = self.cmd_tx.send((self.ip.clone(), cmd));
     }
@@ -79,7 +77,6 @@ impl RemoteApp {
         self.send(Cmd::Launch(self.app_ids[ch as usize].clone()));
     }
 
-    /// Procesa los mensajes que llegan del hilo de red.
     fn poll_events(&mut self) {
         while let Ok(ev) = self.ev_rx.try_recv() {
             match ev {
@@ -100,41 +97,6 @@ impl RemoteApp {
         }
     }
 
-    /// Barra de texto interactiva con sincronización 1 a 1 y detección de borrado.
-    fn text_sender_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("⌨️").size(14.0));
-            
-            let text_edit = egui::TextEdit::singleline(&mut self.search_text)
-                .desired_width(ui.available_width() - 70.0)
-                .hint_text("Ctrl+F para buscar (Escribe 1 a 1)...");
-
-            let resp = ui.add(text_edit);
-
-            if self.focus_search {
-                resp.request_focus();
-                self.focus_search = false;
-            }
-
-            // Detectamos si el texto cambió (escribieron algo nuevo)
-            if resp.changed() {
-                let _current_len = self.search_text.chars().count();
-                if let Some(c) = self.search_text.chars().last() {
-                    self.send(Cmd::Text(SearchCmd::Literal(c))); // <--- Actualizado a Cmd::Text
-                }
-            }
-
-            // Detectamos si presionaron Backspace
-            if resp.has_focus() && ui.input(|i| i.key_pressed(Key::Backspace)) {
-                if !self.search_text.is_empty() {
-                    self.search_text.pop();
-                }
-                self.send(Cmd::Text(SearchCmd::Backspace)); // <--- Actualizado a Cmd::Text
-            }
-        });
-    }
-
-    /// Teclado general: flechas, Enter = OK, Escape/H = Home, Ctrl = Enfocar buscador.
     fn read_keyboard(&mut self, ctx: &egui::Context) {
         let (down, enter, home) = ctx.input(|i| {
             (
@@ -149,12 +111,10 @@ impl RemoteApp {
             )
         });
 
-        // Si presionan Ctrl + F (o simplemente hacen clic en la barra), enfocamos el buscador
         if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(Key::F)) {
             self.focus_search = true;
         }
 
-        // Si el buscador tiene foco, dejamos que el usuario escriba libremente sin mover las flechas del D-pad
         if ctx.wants_keyboard_input() {
             self.key_down = [false; 4];
             return;
@@ -169,7 +129,6 @@ impl RemoteApp {
         }
     }
 
-    /// Envía keydown/keyup solo cuando cambia el estado (ratón o teclado).
     fn sync_holds(&mut self) {
         for d in Dir::ALL {
             let i = d as usize;
@@ -180,9 +139,14 @@ impl RemoteApp {
             }
         }
     }
+}
 
-    /// Fila superior: IP editable, puerto fijo y estado/error.
-    fn top_bar(&mut self, ui: &mut egui::Ui) {
+// ==========================================
+// SECCIÓN DE COMPONENTES DE UI (RENDERIZADO)
+// ==========================================
+impl RemoteApp {
+    /// Renderiza la barra superior de conexión y estado.
+    fn render_top_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label(RichText::new("IP:").strong());
             let resp = ui.add(
@@ -200,8 +164,39 @@ impl RemoteApp {
         ui.label(RichText::new(&self.status).color(color).size(13.0));
     }
 
-    /// Cruz de flechas, trébol de fondo y botón OK, todo dibujado con el painter.
-    fn dpad(&mut self, ui: &mut egui::Ui) {
+    /// Renderiza la barra de búsqueda y tecleo literal 1 a 1.
+    fn render_search_bar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("⌨️").size(14.0));
+            
+            let text_edit = egui::TextEdit::singleline(&mut self.search_text)
+                .desired_width(ui.available_width() - 70.0)
+                .hint_text("Ctrl+F para buscar (Escribe 1 a 1)...");
+
+            let resp = ui.add(text_edit);
+
+            if self.focus_search {
+                resp.request_focus();
+                self.focus_search = false;
+            }
+
+            if resp.changed() {
+                if let Some(c) = self.search_text.chars().last() {
+                    self.send(Cmd::Text(SearchCmd::Literal(c)));
+                }
+            }
+
+            if resp.has_focus() && ui.input(|i| i.key_pressed(Key::Backspace)) {
+                if !self.search_text.is_empty() {
+                    self.search_text.pop();
+                }
+                self.send(Cmd::Text(SearchCmd::Backspace));
+            }
+        });
+    }
+
+    /// Renderiza el D-pad direccional y el botón central OK.
+    fn render_dpad(&mut self, ui: &mut egui::Ui) {
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(340.0), Sense::hover());
         let c = rect.center();
         let painter = ui.painter().clone();
@@ -212,10 +207,10 @@ impl RemoteApp {
         let btn = 84.0;
         let off = 96.0;
         let centers = [
-            c + Vec2::new(0.0, -off), // Up
-            c + Vec2::new(0.0, off),  // Down
-            c + Vec2::new(-off, 0.0), // Left
-            c + Vec2::new(off, 0.0),  // Right
+            c + Vec2::new(0.0, -off),
+            c + Vec2::new(0.0, off),
+            c + Vec2::new(-off, 0.0),
+            c + Vec2::new(off, 0.0),
         ];
         let dirs = [(0.0, -1.0), (0.0, 1.0), (-1.0, 0.0), (1.0, 0.0)];
 
@@ -241,7 +236,6 @@ impl RemoteApp {
             triangle(&painter, r.center(), Vec2::new(dx, dy), 16.0);
         }
 
-        // OK circular con degradado
         let ok_bounds = Rect::from_center_size(c, Vec2::splat(80.0));
         let ok_resp = ui.interact(ok_bounds, ui.id().with("ok"), Sense::click());
 
@@ -262,8 +256,8 @@ impl RemoteApp {
         }
     }
 
-    /// Fila de accesos directos
-    fn shortcuts(&mut self, ui: &mut egui::Ui) {
+    /// Renderiza los accesos directos a aplicaciones (Netflix, YouTube, etc.).
+    fn render_shortcuts(&mut self, ui: &mut egui::Ui) {
         let items: [(&str, Option<Channel>, Color32); 5] = [
             ("🏠 Home", None, Color32::from_rgb(50, 70, 110)),
             ("Netflix", Some(Channel::Netflix), Color32::from_rgb(229, 9, 20)),
@@ -313,13 +307,13 @@ impl eframe::App for RemoteApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(BG).inner_margin(16.0))
             .show(ctx, |ui| {
-                self.top_bar(ui);
+                self.render_top_bar(ui);
                 ui.add_space(6.0);
-                self.text_sender_bar(ui);
+                self.render_search_bar(ui);
                 ui.add_space(8.0);
-                ui.vertical_centered(|ui| self.dpad(ui));
+                ui.vertical_centered(|ui| self.render_dpad(ui));
                 ui.add_space(12.0);
-                self.shortcuts(ui);
+                self.render_shortcuts(ui);
             });
 
         self.sync_holds();
@@ -327,7 +321,10 @@ impl eframe::App for RemoteApp {
     }
 }
 
-/// Triángulo blanco apuntando en la dirección `d`, centrado en `c`.
+// ==========================================
+// FUNCIONES AUXILIARES DE PINTURA (PAINTER)
+// ==========================================
+
 fn triangle(p: &Painter, c: Pos2, d: Vec2, s: f32) {
     let n = Vec2::new(-d.y, d.x);
     let tip = c + d * s;
@@ -336,7 +333,6 @@ fn triangle(p: &Painter, c: Pos2, d: Vec2, s: f32) {
     p.add(Shape::convex_polygon(pts, Color32::WHITE, Stroke::NONE));
 }
 
-/// Contorno de trébol con degradado, a lo largo de la curva.
 fn trefoil(p: &Painter, c: Pos2, r: f32, bounds: Rect) {
     const N: usize = 180;
     let pts: Vec<Pos2> = (0..=N)
@@ -352,7 +348,6 @@ fn trefoil(p: &Painter, c: Pos2, r: f32, bounds: Rect) {
     }
 }
 
-/// Círculo relleno con degradado (malla con color por vértice).
 fn gradient_circle(p: &Painter, c: Pos2, r: f32, bounds: Rect) {
     const M: usize = 64;
     let mut mesh = Mesh::default();
@@ -378,7 +373,6 @@ fn gradient_circle(p: &Painter, c: Pos2, r: f32, bounds: Rect) {
     p.add(Shape::mesh(mesh));
 }
 
-/// Color del degradado naranja → violeta → azul según la posición (diagonal).
 fn gradient_at(pos: Pos2, b: Rect) -> Color32 {
     let tx = ((pos.x - b.left()) / b.width()).clamp(0.0, 1.0);
     let ty = ((pos.y - b.top()) / b.height()).clamp(0.0, 1.0);

@@ -1,82 +1,14 @@
-use std::sync::mpsc::Sender; // <--- Quitamos Receiver de aquí
+pub mod basic_keys;
+pub mod shortcuts;
+pub mod searcher;
+pub use basic_keys::Dir;
+pub use shortcuts::{Channel, InstalledApp, resolve_id};
+use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 pub const PORT: u16 = 8060;
 pub const DEFAULT_IP: &str = "192.168.0.38";
 const TIMEOUT: Duration = Duration::from_secs(3);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Dir {
-    Up,
-    Down,
-    Left,
-    Right,
-}
-
-impl Dir {
-    pub const ALL: [Dir; 4] = [Dir::Up, Dir::Down, Dir::Left, Dir::Right];
-
-    pub fn key(self) -> &'static str {
-        match self {
-            Dir::Up => "Up",
-            Dir::Down => "Down",
-            Dir::Left => "Left",
-            Dir::Right => "Right",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Channel {
-    Netflix,
-    Hbo,
-    YouTube,
-    Spotify,
-}
-
-impl Channel {
-    pub const ALL: [Channel; 4] = [
-        Channel::Netflix,
-        Channel::Hbo,
-        Channel::YouTube,
-        Channel::Spotify,
-    ];
-
-    #[allow(dead_code)] // <--- Evita la advertencia de método no utilizado
-    pub fn label(self) -> &'static str {
-        match self {
-            Channel::Netflix => "Netflix",
-            Channel::Hbo => "HBO",
-            Channel::YouTube => "YouTube",
-            Channel::Spotify => "Spotify",
-        }
-    }
-
-    pub fn default_id(self) -> &'static str {
-        match self {
-            Channel::Netflix => "12",
-            Channel::Hbo => "61322",
-            Channel::YouTube => "837",
-            Channel::Spotify => "22297",
-        }
-    }
-
-    /// Nombres con los que el canal puede aparecer en /query/apps.
-    fn aliases(self) -> &'static [&'static str] {
-        match self {
-            Channel::Netflix => &["Netflix"],
-            Channel::Hbo => &["HBO Max", "Max", "HBO"],
-            Channel::YouTube => &["YouTube"],
-            Channel::Spotify => &["Spotify"],
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct InstalledApp {
-    pub id: String,
-    pub name: String,
-}
 
 /// Órdenes que se ejecutan en el hilo worker, en orden.
 #[derive(Debug)]
@@ -85,8 +17,7 @@ pub enum Cmd {
     KeyUp(Dir),
     Press(&'static str),
     Launch(String),
-    Literal(char), // <--- Para el teclado virtual, si se pulsa un carácter
-    Backspace, // <--- Para el teclado virtual, si se pulsa la tecla de retroceso
+    Text(searcher::SearchCmd), // Para el teclado virtual, si se pulsa un carácter o retroceso
 }
 
 /// Mensajes del hilo de red hacia la UI.
@@ -146,7 +77,6 @@ fn xml_attr(attrs: &str, name: &str) -> Option<String> {
     Some(attrs[start..end].to_string())
 }
 
-/// GET /query/device-info -> nombre amigable del equipo.
 pub fn device_name(ip: &str) -> Result<String, String> {
     let body = get_text(ip, "/query/device-info")?;
     Ok(xml_tag(&body, "user-device-name")
@@ -154,7 +84,6 @@ pub fn device_name(ip: &str) -> Result<String, String> {
         .unwrap_or_else(|| "Roku".into()))
 }
 
-/// GET /query/apps -> lista de canales instalados (id + nombre).
 pub fn installed_apps(ip: &str) -> Result<Vec<InstalledApp>, String> {
     let body = get_text(ip, "/query/apps")?;
     let mut apps = Vec::new();
@@ -176,36 +105,16 @@ pub fn installed_apps(ip: &str) -> Result<Vec<InstalledApp>, String> {
     Ok(apps)
 }
 
-/// Usa el ID instalado si el nombre coincide; si no, el ID de respaldo.
-pub fn resolve_id(ch: Channel, installed: &[InstalledApp]) -> String {
-    installed
-        .iter()
-        .find(|a| ch.aliases().iter().any(|al| a.name.eq_ignore_ascii_case(al)))
-        .map(|a| a.id.clone())
-        .unwrap_or_else(|| ch.default_id().to_string())
-}
-
 pub fn run_cmd(ip: &str, cmd: &Cmd) -> Result<(), String> {
     match cmd {
         Cmd::KeyDown(d) => post(ip, &format!("/keydown/{}", d.key())),
         Cmd::KeyUp(d) => post(ip, &format!("/keyup/{}", d.key())),
         Cmd::Press(k) => post(ip, &format!("/keypress/{k}")),
         Cmd::Launch(id) => post(ip, &format!("/launch/{id}")),
-        Cmd::Literal(c) => {
-            // Manejamos el espacio de forma segura para la URL (%20)
-            let path = if *c == ' ' {
-                "/keypress/Lit_%20".to_string()
-            } else {
-                format!("/keypress/Lit_{c}")
-            };
-            post(ip, &path)
-        }
-        Cmd::Backspace => post(ip, "/keypress/Backspace"),
+        Cmd::Text(search_cmd) => post(ip, &search_cmd.to_path()),
     }
 }
 
-/// Hilo único que ejecuta los comandos en orden (evita que keydown/keyup
-/// lleguen invertidos si se pulsa rápido).
 pub fn spawn_worker(events: Sender<Event>) -> Sender<(String, Cmd)> {
     let (tx, rx) = std::sync::mpsc::channel::<(String, Cmd)>();
     std::thread::spawn(move || {
@@ -218,7 +127,6 @@ pub fn spawn_worker(events: Sender<Event>) -> Sender<(String, Cmd)> {
     tx
 }
 
-/// Lanza la consulta inicial (nombre del equipo y lista de apps) en un hilo.
 pub fn spawn_query(ip: String, events: Sender<Event>) {
     std::thread::spawn(move || match device_name(&ip) {
         Ok(name) => {

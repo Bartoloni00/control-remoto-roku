@@ -1,4 +1,5 @@
 use crate::roku::{self, Channel, Cmd, Dir, Event};
+use crate::roku::searcher::SearchCmd;
 use crate::{save_config, Config};
 use eframe::egui::{
     self,
@@ -106,30 +107,29 @@ impl RemoteApp {
             
             let text_edit = egui::TextEdit::singleline(&mut self.search_text)
                 .desired_width(ui.available_width() - 70.0)
-                .hint_text("Ctrl para buscar (Escribe 1 a 1)...");
+                .hint_text("Ctrl+F para buscar (Escribe 1 a 1)...");
 
             let resp = ui.add(text_edit);
 
-            // Si se presionó Ctrl, solicitamos poner el foco en este campo de texto
             if self.focus_search {
                 resp.request_focus();
                 self.focus_search = false;
             }
 
-            // Detectamos si el texto cambió (escribieron algo nuevo o borraron)
+            // Detectamos si el texto cambió (escribieron algo nuevo)
             if resp.changed() {
-                let _current_len = self.search_text.chars().count(); // Prefijado con _
+                let _current_len = self.search_text.chars().count();
                 if let Some(c) = self.search_text.chars().last() {
-                    self.send(Cmd::Literal(c));
+                    self.send(Cmd::Text(SearchCmd::Literal(c))); // <--- Actualizado a Cmd::Text
                 }
             }
 
-            // Detectamos si presionaron Backspace estando enfocados para enviar la orden de borrar al Roku
+            // Detectamos si presionaron Backspace
             if resp.has_focus() && ui.input(|i| i.key_pressed(Key::Backspace)) {
                 if !self.search_text.is_empty() {
-                    self.search_text.pop(); // Borramos localmente
+                    self.search_text.pop();
                 }
-                self.send(Cmd::Backspace); // Borramos en el Roku
+                self.send(Cmd::Text(SearchCmd::Backspace)); // <--- Actualizado a Cmd::Text
             }
         });
     }

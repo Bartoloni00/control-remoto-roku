@@ -5,6 +5,7 @@ pub use basic_keys::Dir;
 pub use shortcuts::{Channel, InstalledApp, resolve_id};
 use std::sync::mpsc::Sender;
 use std::time::Duration;
+pub use searcher::SearchCmd;
 
 pub const PORT: u16 = 8060;
 pub const DEFAULT_IP: &str = "192.168.0.38";

@@ -1,5 +1,6 @@
 mod roku;
 mod ui;
+mod voice;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

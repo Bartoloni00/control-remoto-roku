@@ -5,9 +5,11 @@ pub mod shortcuts;
 
 use crate::roku::{self, Channel, Cmd, Dir, Event};
 use crate::{save_config, Config};
-use eframe::egui::{self, Color32, Key};
+use eframe::egui::{self, Color32, Key, RichText};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
+
+use crate::voice::VoiceManager;
 
 const BG: Color32 = Color32::from_rgb(14, 22, 48);
 const BUTTON: Color32 = Color32::from_rgb(34, 50, 96);
@@ -34,13 +36,18 @@ pub struct RemoteApp {
     ev_rx: Receiver<Event>,
     search_text: String,
     focus_search: bool,
+    voice_manager: VoiceManager,
+    voice_input: String, // Campo de texto temporal para probar comandos de voz por escrito o simulación
 }
 
 impl RemoteApp {
+
     pub fn new(cc: &eframe::CreationContext<'_>, cfg: Config) -> Self {
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
         let (ev_tx, ev_rx) = channel();
         let cmd_tx = roku::spawn_worker(ev_tx.clone());
+        let voice_manager = VoiceManager::new(cmd_tx.clone());
+
         let mut app = Self {
             ip: cfg.ip,
             status: "Conectando…".into(),
@@ -54,6 +61,8 @@ impl RemoteApp {
             ev_rx,
             search_text: String::new(),
             focus_search: false,
+            voice_manager,
+            voice_input: String::new(),
         };
         app.connect();
         app
@@ -208,6 +217,19 @@ impl eframe::App for RemoteApp {
                 });
 
                 ui.add_space(12.0);
+
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("🎙️ Voz/IA:").strong());
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut self.voice_input)
+                            .desired_width(ui.available_width() - 80.0)
+                            .hint_text("Ej: 'Abrir Netflix', 'Subir', 'Home'..."),
+                    );
+                    if ui.button("Enviar").clicked() || resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                        self.voice_manager.handle_spoken_text(&self.ip, &self.voice_input);
+                        self.voice_input.clear();
+                    }
+                });
 
                 // Componente Shortcuts
                 shortcuts::render(

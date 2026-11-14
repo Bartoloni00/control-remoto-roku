@@ -12,3 +12,4 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 dirs = "5.0"
 ureq = "2.9"
+cpal = "0.18.2"

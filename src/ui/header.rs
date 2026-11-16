@@ -1,5 +1,5 @@
-use crate::roku::{self};
-use eframe::egui::{self, Key, RichText, Color32};
+use crate::roku;
+use eframe::egui::{self, Color32, Key, RichText};
 
 pub fn render(
     ui: &mut egui::Ui,
@@ -18,11 +18,15 @@ pub fn render(
                 .desired_width(140.0)
                 .hint_text(roku::DEFAULT_IP),
         );
-        ui.label(RichText::new(":8060").color(muted));
-        if ui.button("Conectar").clicked() || (resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter))) {
+
+        ui.label(RichText::new(format!(":{}", roku::PORT)).color(muted));
+
+        let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+        if ui.button("Conectar").clicked() || enter {
             on_connect();
         }
     });
+
     ui.add_space(6.0);
     let color = if connected { ok_green } else { err_red };
     ui.label(RichText::new(status).color(color).size(13.0));
